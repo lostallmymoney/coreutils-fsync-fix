@@ -169,14 +169,17 @@ fn test_sync_file_operands_fsync_each_file() {
     }
     #[cfg(windows)]
     {
-        // NUL is the Windows counterpart of /dev/null: it opens fine for
-        // write, and FlushFileBuffers is expected to fail on it. This is
-        // unconfirmed on Windows — the side-fork CI run is the judge.
-        // (The read-only test below is the deterministic Windows case.)
+        // NUL is the Windows counterpart of /dev/null, but it fails
+        // earlier: `sync NUL` errors at OPEN ("No such file or
+        // directory") before fsync is reached, so assert the open
+        // error instead. This still proves per-file processing: without
+        // the fix, `sync NUL` exits 0 (global sync ignores the
+        // operand). (The read-only test below is the deterministic
+        // Windows case.)
         new_ucmd!()
             .arg("NUL")
             .fails_with_code(1)
-            .stderr_contains("error syncing");
+            .stderr_contains("error opening");
     }
 }
 
