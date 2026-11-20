@@ -156,10 +156,14 @@ fn test_sync_fdatasync_error_handling() {
 // global sync() would succeed and exit 0.
 #[test]
 fn test_sync_file_operands_fsync_each_file() {
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     {
         // /dev/null opens fine, but fsync fails on it with EINVAL.
         // One device is enough to prove per-file handling.
+        // Linux/Android only: on macOS (XNU) fsync on a character
+        // device returns 0 (spec_fsync: `if (v_type == VCHR) return 0`),
+        // so /dev/null would NOT fail there and this test would be
+        // vacuous. macOS is covered by the missing-file test instead.
         new_ucmd!()
             .arg("/dev/null")
             .fails_with_code(1)
@@ -206,7 +210,7 @@ fn test_sync_file_operands_multiple_no_flags() {
 fn test_sync_file_operands_one_bad_one_good() {
     // One good file and one that cannot be synced: exit 1, and the error
     // names the bad one. Proves files are handled one by one.
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     {
         let temporary_directory = tempdir().unwrap();
         let good = temporary_directory.path().join("good.txt");
@@ -217,6 +221,23 @@ fn test_sync_file_operands_one_bad_one_good() {
             .fails_with_code(1)
             .stderr_contains("error syncing")
             .stderr_contains("/dev/null");
+    }
+    #[cfg(target_os = "macos")]
+    {
+        // macOS has no /dev/null-style fsync failure (XNU returns 0 for
+        // character devices), so the bad operand here is a missing file:
+        // it still proves files are handled one by one, and the error
+        // names the bad operand.
+        let temporary_directory = tempdir().unwrap();
+        let good = temporary_directory.path().join("good.txt");
+        fs::write(&good, "content").unwrap();
+        let bad = temporary_directory.path().join("missing.txt");
+        new_ucmd!()
+            .arg(&good)
+            .arg(&bad)
+            .fails_with_code(1)
+            .stderr_contains("error opening")
+            .stderr_contains("missing.txt");
     }
     #[cfg(windows)]
     {
