@@ -156,7 +156,7 @@ fn test_sync_fdatasync_error_handling() {
 // global sync() would succeed and exit 0.
 #[test]
 fn test_sync_file_operands_fsync_each_file() {
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg(unix)]
     {
         // /dev/null opens fine, but fsync fails on it with EINVAL.
         // One device is enough to prove per-file handling.
@@ -206,7 +206,7 @@ fn test_sync_file_operands_multiple_no_flags() {
 fn test_sync_file_operands_one_bad_one_good() {
     // One good file and one that cannot be synced: exit 1, and the error
     // names the bad one. Proves files are handled one by one.
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg(unix)]
     {
         let temporary_directory = tempdir().unwrap();
         let good = temporary_directory.path().join("good.txt");
