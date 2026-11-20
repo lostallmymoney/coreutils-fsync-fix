@@ -149,6 +149,119 @@ fn test_sync_fdatasync_error_handling() {
         .stderr_contains("error opening");
 }
 
+// Regression tests for issue #14591: `sync FILE` with no -d/-f flags must
+// fsync each operand like GNU (MODE_FILE), not fall back to a global sync()
+// that ignores the operands. The core trick is an operand that can be
+// opened but not synced: only a real per-file fsync fails on it, while a
+// global sync() would succeed and exit 0.
+#[test]
+fn test_sync_file_operands_fsync_each_file() {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        // /dev/null and /dev/zero open fine, but fsync fails on them
+        // with EINVAL.
+        for device in ["/dev/null", "/dev/zero"] {
+            new_ucmd!()
+                .arg(device)
+                .fails_with_code(1)
+                .stderr_contains("error syncing");
+        }
+    }
+    #[cfg(windows)]
+    {
+        // NUL is the Windows counterpart of /dev/null: it opens fine for
+        // write, and FlushFileBuffers is expected to fail on it. This is
+        // unconfirmed on Windows — the side-fork CI run is the judge.
+        // (The read-only test below is the deterministic Windows case.)
+        new_ucmd!()
+            .arg("NUL")
+            .fails_with_code(1)
+            .stderr_contains("error syncing");
+    }
+}
+
+#[test]
+fn test_sync_file_operands_no_flags() {
+    // Happy path, no flags, on every platform: a regular file syncs fine.
+    let temporary_directory = tempdir().unwrap();
+    let file = temporary_directory.path().join("file.txt");
+    fs::write(&file, "content").unwrap();
+    new_ucmd!().arg(&file).succeeds();
+}
+
+#[test]
+fn test_sync_file_operands_multiple_no_flags() {
+    // Several files, no flags: each one is synced.
+    let temporary_directory = tempdir().unwrap();
+    let temp_path = temporary_directory.path();
+    let file1 = temp_path.join("file1.txt");
+    let file2 = temp_path.join("file2.txt");
+    fs::write(&file1, "content1").unwrap();
+    fs::write(&file2, "content2").unwrap();
+    new_ucmd!().arg(&file1).arg(&file2).succeeds();
+}
+
+#[test]
+fn test_sync_file_operands_one_bad_one_good() {
+    // One good file and one that cannot be synced: exit 1, and the error
+    // names the bad one. Proves files are handled one by one.
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        let temporary_directory = tempdir().unwrap();
+        let good = temporary_directory.path().join("good.txt");
+        fs::write(&good, "content").unwrap();
+        new_ucmd!()
+            .arg(&good)
+            .arg("/dev/null")
+            .fails_with_code(1)
+            .stderr_contains("error syncing")
+            .stderr_contains("/dev/null");
+    }
+    #[cfg(windows)]
+    {
+        let temporary_directory = tempdir().unwrap();
+        let good = temporary_directory.path().join("good.txt");
+        fs::write(&good, "content").unwrap();
+        let bad = temporary_directory.path().join("read-only.txt");
+        fs::write(&bad, "content").unwrap();
+        let mut perms = fs::metadata(&bad).unwrap().permissions();
+        perms.set_readonly(true);
+        fs::set_permissions(&bad, perms).unwrap();
+        new_ucmd!()
+            .arg(&good)
+            .arg(&bad)
+            .fails_with_code(1)
+            .stderr_contains("read-only.txt");
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn test_sync_file_operands_read_only_file() {
+    // Windows only: a read-only file cannot be opened for write, and the
+    // Windows fsync path needs a write handle. With per-file handling
+    // this fails; a global sync would silently exit 0.
+    let temporary_directory = tempdir().unwrap();
+    let file = temporary_directory.path().join("read-only.txt");
+    fs::write(&file, "content").unwrap();
+    let mut perms = fs::metadata(&file).unwrap().permissions();
+    perms.set_readonly(true);
+    fs::set_permissions(&file, perms).unwrap();
+    new_ucmd!()
+        .arg(&file)
+        .fails_with_code(1)
+        .stderr_contains("read-only.txt");
+}
+
+#[test]
+fn test_sync_file_operands_missing_file_no_flags() {
+    // A missing file, no flags: the operand is reported, not ignored.
+    new_ucmd!()
+        .arg("do-not-exist")
+        .fails()
+        .stderr_contains("error opening");
+}
+
 #[cfg(target_vendor = "apple")]
 #[test]
 fn test_sync_syncfs_error_handling_macos() {
