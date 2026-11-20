@@ -69,6 +69,15 @@ fn test_sync_no_permission_dir() {
     use uutests::util::TestScenario;
     use uutests::util_name;
 
+    // Root bypasses permission checks, so a mode-0000 directory can
+    // still be opened and the command succeeds instead of failing.
+    // The test is meaningless as root; skip it (same pattern as
+    // test_chcon.rs).
+    if rustix::process::geteuid().is_root() {
+        println!("test skipped: root can open any directory");
+        return;
+    }
+
     let ts = TestScenario::new(util_name!());
     let at = &ts.fixtures;
     let dir = "foo";
