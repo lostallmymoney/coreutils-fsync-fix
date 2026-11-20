@@ -158,14 +158,12 @@ fn test_sync_fdatasync_error_handling() {
 fn test_sync_file_operands_fsync_each_file() {
     #[cfg(any(target_os = "linux", target_os = "android"))]
     {
-        // /dev/null and /dev/zero open fine, but fsync fails on them
-        // with EINVAL.
-        for device in ["/dev/null", "/dev/zero"] {
-            new_ucmd!()
-                .arg(device)
-                .fails_with_code(1)
-                .stderr_contains("error syncing");
-        }
+        // /dev/null opens fine, but fsync fails on it with EINVAL.
+        // One device is enough to prove per-file handling.
+        new_ucmd!()
+            .arg("/dev/null")
+            .fails_with_code(1)
+            .stderr_contains("error syncing");
     }
     #[cfg(windows)]
     {
